@@ -33,17 +33,17 @@ def pc_normalize(pc, centroid=None, m=None):
 
 def parse_args():
     parser = argparse.ArgumentParser('Model')
-    parser.add_argument('--model', type=str, default='CLNet', help='model name [default: CLNet]')
-    parser.add_argument('--batch_size', type=int, default=4, help='Batch Size during training [default: 16]')
+    parser.add_argument('--model', type=str, default='SegNet')
+    parser.add_argument('--batch_size', type=int, default=4)
+    parser.add_argument('--checkpoint_path', default=r'.\log\2025-08-28_15-52\checkpoints\best_model.pth')
     parser.add_argument('--gpu', type=str, default='0', help='GPU to use [default: GPU 0]')
     parser.add_argument('--log_dir', type=str, default=None, help='Log path [default: None]')
     return parser.parse_args()
 
 
 def main(args):
-    '''HYPER PARAMETER'''
+    """HYPER PARAMETER"""
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    experiment_dir = 'log/' + args.log_dir
 
     '''MODEL LOADING'''
     cls_num = 2
@@ -51,13 +51,14 @@ def main(args):
     MODEL = importlib.import_module(args.model)
     classifier = MODEL.SegNet(cls_num=cls_num).cuda()
 
-    checkpoint = torch.load(str(experiment_dir) + '/checkpoints/best_model.pth')
+    checkpoint = torch.load(args.checkpoint_path, weights_only=False)
     classifier.load_state_dict(checkpoint['model_state_dict'],strict=True)
     arp = False
 
-    data_dir = './dataset/ribseg/test/'
+    data_dir = r'./dataset/seg_input_10w/test/'
 
-    dir_save = './res/'+args.log_dir+'/'
+    # dir_save = './res/'+args.log_dir+'/'
+    dir_save = r"./result/"
     if not os.path.exists(dir_save):
       os.makedirs(dir_save,exist_ok=True)
 
@@ -105,7 +106,7 @@ def main(args):
                 else:
                     pred[index*sample_num:(1+index)*sample_num] = pred_choice.cpu()
             
-            np.savez_compressed(dir_save+name[:-4], ct=ct_cords, seg =pred)
+            np.savez_compressed(dir_save+name[:-4], ct=ct_cords, seg=pred)
 
 
 if __name__ == '__main__':

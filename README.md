@@ -31,7 +31,7 @@ The RibSeg Dataset contains annotations for both rib segmentation and centerline
 
 | Rib Segmentation      | Rib Centerline |
 | ----------- | --------------- | 
-| ![Rib Segmentation](readme_pic/10_s.png)     | ![Rib Centerline](readme_pic/10_c.png)             | 
+| ![Rib Segmentation](data/readme_pic/10_s.png)     | ![Rib Centerline](data/readme_pic/10_c.png)             | 
 
 Overview of RibSeg dataset:
 
@@ -64,7 +64,7 @@ Based on RibFrac dataset and RibSeg dataset, we binarized the CT scans and the a
 You can train your model through the following command line:
 
 ```python
-python train_ribseg.py --model pointnet2_part_seg_msg --log_dir <model_directory>
+python train_ribseg.py --model SegNet --log_dir <model_directory>
 ```
 
 You can test your model through the following command line:
