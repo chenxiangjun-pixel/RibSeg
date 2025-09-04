@@ -1,115 +1,79 @@
+"""从 RibFrac 第二部分体积数据生成点云训练数据。
+
+脚本将 RibFrac 数据集中成对的 CT 体数据与肋骨分割标签转换为稀疏点云。
+其适用于文件组织形式为::
+
+    <root>/image/RibFrac301-image.nii.gz
+    <root>/label/RibFrac301-label.nii.gz
+
+HU 值大于等于 200 的体素坐标将保存到 ``./data/pn/data_pn``，对应的标签
+保存到 ``./data/pn/label_pn``，输出文件名与病例编号一致（如示例中的
+``RibFrac301``）。
 """
-Author: Benny
-Date: Nov 2019
-"""
+
+from __future__ import annotations
+
 import argparse
 import os
+
 import nibabel as nib
-from pathlib import Path
-import sys
-from tqdm import tqdm
 import numpy as np
 
-def main():
-    for data in [x for x in os.listdir('./data/ribfrac/ribfrac-train-images-1/Part1/')]:
+
+def process_part2(root_dir: str) -> None:
+    """将 RibFrac 第二部分的图像与标签转为点云数组。
+
+    参数
+    ------
+    root_dir : str
+        包含 ``image`` 与 ``label`` 子目录的路径。
+    """
+
+    img_dir = os.path.join(root_dir, "image")
+    label_dir = os.path.join(root_dir, "label")
+
+    if not os.path.isdir(img_dir):
+        print(f"{img_dir} 不存在，跳过")
+        return
+
+    os.makedirs("./data/pn/data_pn", exist_ok=True)
+    os.makedirs("./data/pn/label_pn", exist_ok=True)
+
+    for img_name in sorted(os.listdir(img_dir)):
+        if not img_name.endswith("-image.nii.gz"):
+            continue
+
+        img_path = os.path.join(img_dir, img_name)
+        label_name = img_name.replace("-image", "-label")
+        label_path = os.path.join(label_dir, label_name)
+
         try:
-            source = nib.load('./data/ribfrac/ribfrac-train-images-1/Part1/'+data)
-            source = source.get_fdata()
-            source[source >= 200] = 1
-            source[source != 1] = 0
+            source = nib.load(img_path).get_fdata()
+            source = (source >= 200).astype(np.uint8)
+            label = nib.load(label_path).get_fdata()
 
-            label = nib.load('./data/RibSeg/nii/'+data[:-12]+'rib-seg.nii.gz')
-            label = label.get_fdata()
+            coords = np.argwhere(source == 1)
+            labels = label[coords[:, 0], coords[:, 1], coords[:, 2]]
 
-            temp = np.argwhere(source == 1)
-    #         choice = np.random.choice(temp.shape[0], 30000, replace=False)
-    ##         downsample
-    #         points = temp[choice, :]
-
-            label_selected_points = []
-            for i in temp:
-                label_selected_points.append(label[i[0]][i[1]][i[2]])
-            label_selected_points = np.array(label_selected_points)
-            np.save('./data/pn/data_pn/train'+data[:-13], temp)
-            np.save('./data/pn/label_pn/train' + data[:-13], label_selected_points)
-        except:
-            print(data,"has no label file.")
+            case_id = img_name.replace("-image.nii.gz", "")
+            np.save(f"./data/pn/data_pn/{case_id}", coords)
+            np.save(f"./data/pn/label_pn/{case_id}", labels)
+        except FileNotFoundError:
+            print(f"{img_name} 缺少标签文件，跳过")
 
 
-    for data in [x for x in os.listdir('./data/ribfrac/ribfrac-train-images-2/Part2/')]:
-        try:
-            source = nib.load('./data/ribfrac/ribfrac-train-images-2/Part2/'+data)
-            source = source.get_fdata()
-            source[source >= 200] = 1
-            source[source != 1] = 0
+def main() -> None:
+    parser = argparse.ArgumentParser(description="处理 RibFrac Part2 数据")
+    parser.add_argument(
+        "--root",
+        default="./data/ribfrac/Part2",
+        help="包含 'image' 与 'label' 文件夹的 Part2 目录路径",
+    )
+    args = parser.parse_args()
 
-            label = nib.load('./data/RibSeg/nii/'+data[:-12]+'rib-seg.nii.gz')
-            label = label.get_fdata()
-
-            temp = np.argwhere(source == 1)
-    #         choice = np.random.choice(temp.shape[0], 30000, replace=False)
-    #         # downsample
-    #         points = temp[choice, :]
-
-            label_selected_points = []
-            for i in temp:
-                label_selected_points.append(label[i[0]][i[1]][i[2]])
-            label_selected_points = np.array(label_selected_points)
-            np.save('./data/pn/data_pn/train'+data[:-13], temp)
-            np.save('./data/pn/label_pn/train' + data[:-13], label_selected_points)
-        except:
-            print(data,"has no label file.")
+    process_part2(args.root)
 
 
-    for data in [x for x in os.listdir('./data/ribfrac/ribfrac-val-images/')]:
-        try:
-            source = nib.load('./ribfrac/ribfrac-val-images/' + data)
-            source = source.get_fdata()
-            source[source >= 200] = 1
-            source[source != 1] = 0
-
-            label = nib.load('./data/RibSeg/nii/' + data[:-12] + 'rib-seg.nii.gz')
-            label = label.get_fdata()
-
-            temp = np.argwhere(source == 1)
-    #         choice = np.random.choice(temp.shape[0], 30000, replace=False)
-    #         # downsample
-    #         points = temp[choice, :]
-
-            label_selected_points = []
-            for i in temp:
-                label_selected_points.append(label[i[0]][i[1]][i[2]])
-            label_selected_points = np.array(label_selected_points)
-            np.save('./data/pn/data_pn/val' + data[:-13], temp)
-            np.save('./data/pn/label_pn/val' + data[:-13], label_selected_points)
-        except:
-            print(data,"has no label file.")
-
-
-    for data in [x for x in os.listdir('./data/ribfrac/ribfrac-test-images/')]:
-        try:
-            source = nib.load('./data/ribfrac/ribfrac-test-images/'+data)
-            source = source.get_fdata()
-            source[source >= 200] = 1
-            source[source != 1] = 0
-
-            label = nib.load('./data/RibSeg/nii/'+data[:-12]+'rib-seg.nii.gz')
-            label = label.get_fdata()
-
-            temp = np.argwhere(source == 1)
-    #         choice = np.random.choice(temp.shape[0], 30000, replace=False)
-    #         # downsample
-    #         points = temp[choice, :]
-
-            label_selected_points = []
-            for i in temp:
-                label_selected_points.append(label[i[0]][i[1]][i[2]])
-            temp = np.array(temp)
-            np.save('./data/pn/data_pn/test'+data[:-13], temp)
-            np.save('./data/pn/label_pn/test' + data[:-13], label_selected_points)
-        except:
-            print(data,"has no label file.")
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
 

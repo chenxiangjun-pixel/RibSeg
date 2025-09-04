@@ -1,7 +1,7 @@
-import torch.nn as nn
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from models.pn2_util import PointNetSetAbstractionMsg, PointNetFeaturePropagation
+from .pn2_util import PointNetSetAbstractionMsg, PointNetFeaturePropagation
 
 
 
@@ -20,26 +20,26 @@ class PointNet2(nn.Module):
 
     def forward(self, xyz):
         """
-          Input:
-              xyz: input points position data, [B, 3, N]
-          Return:
-              feat: feature, [B, 128, N]
+          输入:
+              xyz: 点的位置数据，形状为 [B, 3, N]
+          返回:
+              feat: 特征，形状为 [B, 128, N]
         """
-        # Set Abstraction layers
-        l0_points = xyz # [B, 3, 30000]
-        l0_xyz = xyz[:,:3,:] # [B, 3, 30000]
+        # 集成抽象层
+        l0_points = xyz  # [B, 3, 30000]
+        l0_xyz = xyz[:,:3,:]  # [B, 3, 30000]
 
 
-        l1_xyz, l1_points = self.sa1(l0_xyz, l0_points) # [B,3,1024], [B,96,1024]
-        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points) # [B,3,256], [B,256,256]
-        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points) # [B,3,64], [B,512,64]
-        l4_xyz, l4_points = self.sa4(l3_xyz, l3_points) # [B,3,16], [B,1024,16]
+        l1_xyz, l1_points = self.sa1(l0_xyz, l0_points)  # [B,3,1024], [B,96,1024]
+        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)  # [B,3,256], [B,256,256]
+        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)  # [B,3,64], [B,512,64]
+        l4_xyz, l4_points = self.sa4(l3_xyz, l3_points)  # [B,3,16], [B,1024,16]
   
         # print(l3_xyz.shape,l3_points.shape,)
-        l3_points = self.fp4(l3_xyz, l4_xyz, l3_points, l4_points)  # [B, 256, 64] temp0
-        l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points)  # [B, 256, 256] temp1
-        l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points)  # [B, 128, 1024] temp2
-        l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points)     # [B, 128, 30000] temp3
+        l3_points = self.fp4(l3_xyz, l4_xyz, l3_points, l4_points)  # [B, 256, 64]
+        l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points)  # [B, 256, 256]
+        l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points)  # [B, 128, 1024]
+        l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points)     # [B, 128, 30000]
  
         # print(l0_points.shape)
         # return l3_xyz,l2_xyz,l1_xyz,l0_xyz,l3_points,l2_points,l1_points,l0_points

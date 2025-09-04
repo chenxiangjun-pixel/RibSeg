@@ -15,6 +15,7 @@ from tqdm import tqdm
 import numpy as np
 import nibabel as nib
 
+# 如需调试 CUDA，可取消注释以下行：
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,26 +33,29 @@ def pc_normalize(pc, centroid=None, m=None):
     return pc, centroid, m
 
 def parse_args():
-    parser = argparse.ArgumentParser('Model')
-    parser.add_argument('--model', type=str, default='CLNet', help='model name [default: CLNet]')
-    parser.add_argument('--batch_size', type=int, default=4, help='Batch Size during training [default: 16]')
-    parser.add_argument('--gpu', type=str, default='0', help='GPU to use [default: GPU 0]')
-    parser.add_argument('--log_dir', type=str, default=None, help='Log path [default: None]')
+    parser = argparse.ArgumentParser('模型参数')
+    parser.add_argument('--model', type=str, default='CLNet', help='模型名称')
+    parser.add_argument('--batch_size', type=int, default=4, help='批量大小')
+    parser.add_argument('--gpu', type=str, default='0', help='使用的 GPU 编号')
+    parser.add_argument('--log_dir', type=str, default=None, help='日志与模型目录')
     return parser.parse_args()
 
 
 def main(args):
-    '''HYPER PARAMETER'''
+    """主函数：加载模型并执行推理。"""
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     experiment_dir = 'log/' + args.log_dir
 
-    '''MODEL LOADING'''
+    # 模型加载
     cls_num = 2
 
     MODEL = importlib.import_module(args.model)
     classifier = MODEL.SegNet(cls_num=cls_num).cuda()
 
-    checkpoint = torch.load(str(experiment_dir) + '/checkpoints/best_model.pth')
+    checkpoint = torch.load(
+        str(experiment_dir) + '/checkpoints/best_model.pth',
+        weights_only=False,
+    )
     classifier.load_state_dict(checkpoint['model_state_dict'],strict=True)
     arp = False
 

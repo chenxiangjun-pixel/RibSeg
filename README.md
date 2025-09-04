@@ -64,13 +64,13 @@ Based on RibFrac dataset and RibSeg dataset, we binarized the CT scans and the a
 You can train your model through the following command line:
 
 ```python
-python train_ribseg.py --model pointnet2_part_seg_msg --log_dir <model_directory>
+python train.py --model SegNet --log_dir <model_directory>
 ```
 
 You can test your model through the following command line:
 
 ```python
-python test_ribseg.py --log_dir <model_directory>
+python test.py --log_dir <model_directory>
 ```
 
 You can conduct inference through the following command line:

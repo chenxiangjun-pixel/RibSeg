@@ -1,7 +1,11 @@
-import torch.nn as nn
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from models.pointnet_util import PointNetSetAbstractionMsg,PointNetSetAbstraction,PointNetFeaturePropagation
+from .pointnet_util import (
+    PointNetFeaturePropagation,
+    PointNetSetAbstraction,
+    PointNetSetAbstractionMsg,
+)
 
 
 class get_model(nn.Module):
@@ -24,7 +28,7 @@ class get_model(nn.Module):
         self.conv2 = nn.Conv1d(128, num_classes, 1)
 
     def forward(self, xyz, cls_label):
-        # Set Abstraction layers
+        # 集合抽象层
         B,C,N = xyz.shape
         if self.normal_channel:
             l0_points = xyz
@@ -35,23 +39,23 @@ class get_model(nn.Module):
         l1_xyz, l1_points = self.sa1(l0_xyz, l0_points)
         l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
         l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
-        # Feature Propagation layers
+        # 特征传播层
         l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points)
         l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points)
         cls_label_one_hot = cls_label.view(B,16,1).repeat(1,1,N)
 
-        # print("cls_label:",cls_label.size())
-        # print("l0_xyz:",l0_xyz.size())
-        # print("l1_xyz:",l1_xyz.size())
-        # print("l1_points:",l1_points.size())
+        # print("cls_label 大小:", cls_label.size())
+        # print("l0_xyz 大小:", l0_xyz.size())
+        # print("l1_xyz 大小:", l1_xyz.size())
+        # print("l1_points 大小:", l1_points.size())
         
         
-        # aa=torch.cat([cls_label_one_hot,l0_xyz,l0_points],1)
-        # print("xxxx:",aa.size())
+        # aa = torch.cat([cls_label_one_hot, l0_xyz, l0_points], 1)
+        # print("xxxx 大小:", aa.size())
 
 
         l0_points = self.fp1(l0_xyz, l1_xyz, torch.cat([cls_label_one_hot,l0_xyz,l0_points],1), l1_points)
-        # FC layers
+        # 全连接层
         feat = F.relu(self.bn1(self.conv1(l0_points)))
         x = self.drop1(feat)
         x = self.conv2(x)
