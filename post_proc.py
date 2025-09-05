@@ -1,116 +1,106 @@
+import argparse
+from pathlib import Path
 import numpy as np
 import nibabel as nib
-import skimage
-from skimage import morphology as morph
-from skimage.measure import label,regionprops
-import time,os
-from tqdm import tqdm
-from collections import Counter
-import operator
+# from npz_to_mask import npz_to_mask
 import SimpleITK as sitk
-from scipy.ndimage.morphology import binary_dilation
-from scipy import interpolate
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from scipy.interpolate import UnivariateSpline
 
-source_data_dir = './data/ribfrac/ribfrac-test-images/'
-Label_dir = './data/RibSeg/nii/'
-
-dis_c2_point_dir = './inference_res/point/'
-dis_c2_label_dir = './inference_res/label/'
+def ensure_coord_order(pts: np.ndarray, shape):
+    """Ensure point coordinates match volume order (x, y, z).
+    If coordinates exceed bounds, try swapping axes."""
+    if np.all(pts[:, 0] < shape[0]) and np.all(pts[:, 1] < shape[1]) and np.all(pts[:, 2] < shape[2]):
+        return pts
+    if np.all(pts[:, 2] < shape[0]) and np.all(pts[:, 1] < shape[1]) and np.all(pts[:, 0] < shape[2]):
+        return pts[:, [2, 1, 0]]
+    raise ValueError('Coordinate indices do not fit volume shape; unable to determine (x, y, z) order.')
 
 
-### add .npy when loading point/label
-name_list = tqdm([x for x in os.listdir(source_data_dir)])
-## source image
-total_dice = 0
-rib_recall = np.zeros((24, 2))
-recall = np.zeros(24)
-num = 0
-for ct in name_list:
-    num += 1
+def npz_to_mask(npz_path: str, ct_path: str, out_path: str, min_size: int = 1000):
+    data = np.load(npz_path)
+    pts = data['ct'][:, :3].astype(np.int32)
+    preds = data['seg'].astype(np.uint8)
 
-    s_i = nib.load(source_data_dir + ct)
-    s_i = s_i.get_fdata()
-    s_i[s_i != 0] = 1
-    s_i = s_i.astype('int8')
+    ct_img = nib.load(ct_path)
+    mask = np.zeros(ct_img.shape, dtype=np.uint8)
 
-    loc = np.load(dis_c2_point_dir + ct[:-13]+'.npy')
-    label = np.load(dis_c2_label_dir + ct[:-13]+'.npy')
+    pts = ensure_coord_order(pts, mask.shape)
+    mask[pts[:, 0], pts[:, 1], pts[:, 2]] = preds
 
-    mask_rd = np.zeros(s_i.shape)
-    mask_res = np.zeros(s_i.shape)
+    itk_mask = sitk.GetImageFromArray(mask)
+    dilated = sitk.BinaryDilate(itk_mask, (1, 1, 1), sitk.sitkBall)
 
-    for index in loc:
-        x, y, z = index[0], index[1], index[2]
-        mask_rd[x][y][z] = 1
-    for i in range(loc.shape[0]):
-        index = loc[i]
-        x, y, z = index[0], index[1], index[2]
-        mask_res[x][y][z] = label[i]
+    cc = sitk.ConnectedComponent(dilated)
+    stats = sitk.LabelShapeStatisticsImageFilter()
+    stats.Execute(cc)
 
-    lmage_array = sitk.GetImageFromArray(mask_res.astype('int8'))
-    # closed = sitk.BinaryMorphologicalClosing(lmage_array,15,sitk.sitkBall)
-    # You should try different parameters for better results.
-    dilated = sitk.BinaryDilate(lmage_array, (3,3,3), sitk.sitkBall)
-    # Eroded = sitk.BinaryErode(dilated,12,sitk.sitkBall)
-    # holesfilled = sitk.BinaryFillhole(dilated,fullyConnected=True)
-    holesfilled = sitk.GetArrayFromImage(dilated)
+    keep = np.zeros(mask.shape, dtype=np.uint8)
+    for label in stats.GetLabels():
+        if stats.GetNumberOfPixels(label) >= min_size:
+            keep |= sitk.GetArrayFromImage(cc == label)
 
-    res = np.multiply(s_i, holesfilled)
+    nib.save(nib.Nifti1Image(keep.astype(np.uint8), ct_img.affine), out_path)
 
-    res1 = skimage.measure.label(res, connectivity=1)
-    rib_p = regionprops(res1)
 
-    rib_p.sort(key=lambda x: x.area, reverse=True)
+def extract_centerline(mask: np.ndarray) -> np.ndarray:
+    """Extract a 1-voxel-wide centerline skeleton from a binary mask."""
+    itk_img = sitk.GetImageFromArray(mask.astype(np.uint8))
+    skeleton = sitk.BinaryThinning(itk_img)
+    return sitk.GetArrayFromImage(skeleton)
 
-    im = np.in1d(res1, [x.label for x in rib_p[:24]]).reshape(res1.shape)
 
-    im = im.astype('int8')
+def dice_score(pred: np.ndarray, gt: np.ndarray) -> float:
+    pred = pred > 0
+    gt = gt > 0
+    intersection = np.logical_and(pred, gt).sum()
+    return (2.0 * intersection) / (pred.sum() + gt.sum() + 1e-8)
 
-    ## dice
-    s = nib.load(Label_dir + ct[:-12]+'rib-seg.nii.gz')
-    s = s.get_fdata()
-    s = s.astype('int8')
 
-    intersection = np.multiply(s, im)
-    insec = np.argwhere(intersection != 0).shape[0]
-    s_i = np.argwhere(s != 0).shape[0]
-    i_i = np.argwhere(im != 0).shape[0]
+def process_case(npz_file: Path, ct_dir: str, label_dir: str, out_dir: str, min_size: int):
+    case = npz_file.stem
+    ct_path = Path(ct_dir) / f"{case}-image.nii.gz"
+    out_path = Path(out_dir) / f"{case}_mask.nii"
+    npz_to_mask(str(npz_file), str(ct_path), str(out_path), min_size)
 
-    dice = 1 - (2 * insec + 1) / (s_i + i_i + 1)
+    mask_img = nib.load(str(out_path))
+    mask = mask_img.get_fdata()
 
-    total_dice += dice
+    centerline = extract_centerline(mask)
+    centerline_path = Path(out_dir) / f"{case}_centerline.nii"
+    nib.save(nib.Nifti1Image(centerline.astype(np.uint8), mask_img.affine), centerline_path)
 
-    ## recall
+    dice = None
+    if label_dir:
+        label_candidates = [Path(label_dir) / f"{case}-label.nii.gz"]
+        label_path = next((p for p in label_candidates if p.exists()), None)
+        if label_path is not None:
+            gt = nib.load(str(label_path)).get_fdata()
+            dice = dice_score(mask, gt)
+    return case, dice
 
-    for i in range(24):
-        loc = np.argwhere(s == i + 1)
-        loc_num = loc.shape[0]
-        rib_count = 0
 
-        if loc_num != 0:
-            rib_recall[i][1] += 1
-            for index in loc:
-                x, y, z = index[0], index[1], index[2]
-                if im[x][y][z] != 0:
-                    rib_count += 1
-            if rib_count >= loc_num * 0.5:
-                rib_recall[i][0] += 1
+def main():
+    parser = argparse.ArgumentParser(description="Convert RibSeg npz predictions to NIfTI masks and optionally compute Dice scores")
+    parser.add_argument('--npz_dir', default=r"E:\Code_collection\8_Rib_seg\RibSeg\result", help='Directory containing RibFracxxx.npz files')
+    parser.add_argument('--ct_dir', default=r'F:\Data_Collection\Ribfrac\Part2\image', help='Directory with original CT volumes')
+    parser.add_argument('--out_dir', default=r'E:\Code_collection\8_Rib_seg\RibSeg\result\结果可视化nii', help='Directory to save NIfTI masks')
+    parser.add_argument('--label_dir', default=r'F:\Data_Collection\Ribfrac\Part2\label', help='Directory with ground-truth labels for evaluation')
+    parser.add_argument('--min_size', type=int, default=1000, help='Minimum size to retain connected components')
+    args = parser.parse_args()
 
-for x in range(24):
-    recall[x] = rib_recall[x][0] / rib_recall[x][1]
-ave_dice = total_dice / num
+    Path(args.out_dir).mkdir(parents=True, exist_ok=True)
 
-recall1 = (rib_recall[1 - 1][0] + rib_recall[13 - 1][0]) / ((rib_recall[1 - 1][1] + rib_recall[13 - 1][1]))
-recall3 = (rib_recall[12 - 1][0] + rib_recall[24 - 1][0]) / ((rib_recall[12 - 1][1] + rib_recall[24 - 1][1]))
-a = rib_recall[:, 0].sum() - rib_recall[1 - 1][0] - rib_recall[13 - 1][0] - rib_recall[12 - 1][0] - rib_recall[24 - 1][
-    0]
-b = rib_recall[:, 1].sum() - rib_recall[1 - 1][1] - rib_recall[13 - 1][1] - rib_recall[12 - 1][1] - rib_recall[24 - 1][
-    1]
-recall2 = (a / b)
-recall4 = (rib_recall[:, 0].sum() / rib_recall[:, 1].sum())
-print('average rib recall data:', recall1, recall2, recall3, recall4)
-print('dice:', ave_dice)
+    dices = []
+    for npz_file in sorted(Path(args.npz_dir).glob('*.npz')):
+        case, dice = process_case(npz_file, args.ct_dir, args.label_dir, args.out_dir, args.min_size)
+        if dice is not None:
+            dices.append(dice)
+            print(f"{case}: Dice={dice:.4f}")
+        else:
+            print(f"{case}: saved mask")
+
+    if dices:
+        print(f"Average Dice: {np.mean(dices):.4f}")
+
+
+if __name__ == '__main__':
+    main()
